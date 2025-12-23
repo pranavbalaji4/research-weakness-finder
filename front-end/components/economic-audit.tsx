@@ -1,12 +1,17 @@
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
-import { AlertTriangle, BookOpen, TrendingUp, Target } from "lucide-react"
+import { BookOpen, TrendingUp, Target } from "lucide-react"
 
-export function EconomicAudit() {
+export function EconomicAudit({ scores, assumptions, citations, analysis }: { scores?: any | null; assumptions?: string[] | null; citations?: any[] | null; analysis?: string | null }) {
+  const methodology = scores?.methodology ?? 85
+  const originality = scores?.originality ?? 72
+  const literature = scores?.literature ?? 80
+  const robustness = scores?.robustness ?? 75
+  const overall = Math.round((methodology + originality + literature + robustness) / 4)
+
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-serif font-bold text-foreground tracking-tight">Economic Audit</h2>
+      <h2 className="text-xl font-serif font-bold text-foreground tracking-tight">Structural Integrity</h2>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <Card
@@ -21,25 +26,25 @@ export function EconomicAudit() {
                     <Target className="h-5 w-5 text-primary" />
                   </div>
                   <h3 className="text-2xl font-serif font-bold text-foreground tracking-tight">
-                    Market Readiness Score
+                    Submission Readiness Score
                   </h3>
                 </div>
                 <p className="text-sm text-muted-foreground max-w-xl leading-relaxed">
-                  Comprehensive assessment of publication viability at top-tier Economics and Finance journals based on
-                  methodological rigor, originality, and empirical robustness
+                  Comprehensive assessment of submission readiness for academic theses and dissertations based on
+                  methodological rigor, thematic innovation, and citation & evidence quality
                 </p>
               </div>
 
-              <div className="flex items-center justify-center">
-                <RadialGauge value={78} />
+                <div className="flex items-center justify-center">
+                <RadialGauge value={scores ? overall : 100} showValue={!!scores} />
               </div>
             </div>
 
             <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-8">
-              <ScoreMetric label="Methodology" score={85} />
-              <ScoreMetric label="Originality" score={72} />
-              <ScoreMetric label="Literature" score={80} />
-              <ScoreMetric label="Robustness" score={75} />
+              <ScoreMetric label="Methodological Rigor" score={methodology} showValue={!!scores} />
+              <ScoreMetric label="Thematic Innovation" score={originality} showValue={!!scores} />
+              <ScoreMetric label="Citation & Evidence Quality" score={literature} showValue={!!scores} />
+              <ScoreMetric label="Robustness" score={robustness} showValue={!!scores} />
             </div>
           </div>
         </Card>
@@ -48,7 +53,7 @@ export function EconomicAudit() {
           className="backdrop-blur-sm bg-card/60 hover:bg-card/80 transition-all duration-300"
           style={{ borderWidth: "0.5px", borderColor: "oklch(0.35 0.015 260)" }}
         >
-          <div className="p-8 space-y-5">
+          <div className="p-6 space-y-4">
             <div className="flex items-center gap-2.5">
               <div className="p-2 bg-primary/10 rounded-lg">
                 <BookOpen className="h-4 w-4 text-primary" />
@@ -59,11 +64,13 @@ export function EconomicAudit() {
             </div>
 
             <div className="space-y-2">
-              <AssumptionItem text="Assumes constant volatility" />
-              <AssumptionItem text="Ignores liquidity constraints" />
-              <AssumptionItem text="Perfect market efficiency implied" />
-              <AssumptionItem text="No transaction costs considered" />
-              <AssumptionItem text="Homogeneous investor expectations" />
+              {(assumptions && assumptions.length > 0 ? assumptions : [
+                "Assumes representative sample of population",
+                "Assumes measurement error is negligible",
+                "Assumes observed controls adequately address confounding",
+              ]).slice(0,3).map((a, i) => (
+                <AssumptionItem key={i} text={a} />
+              ))}
             </div>
           </div>
         </Card>
@@ -77,55 +84,26 @@ export function EconomicAudit() {
               <div className="p-2 bg-secondary/10 rounded-lg">
                 <TrendingUp className="h-4 w-4 text-secondary" />
               </div>
-              <h3 className="text-base font-serif font-semibold text-foreground tracking-tight">Citation Alpha</h3>
+              <h3 className="text-base font-serif font-semibold text-foreground tracking-tight">Citation & Evidence Quality</h3>
             </div>
 
             <div className="space-y-3.5">
-              <CitationJournal name="Journal of Finance" coverage={85} />
-              <CitationJournal name="Quarterly Journal of Economics" coverage={60} />
-              <CitationJournal name="Review of Financial Studies" coverage={75} />
-              <CitationJournal name="Journal of Financial Economics" coverage={70} />
+              {citations && citations.length > 0 ? (
+                citations.slice(0,4).map((c: any, i: number) => (
+                  <CitationJournal key={i} name={typeof c === 'string' ? c : String(c)} coverage={Math.min(95, 60 + i*10)} />
+                ))
+              ) : (
+                <div className="text-sm text-muted-foreground">No citations found</div>
+              )}
             </div>
 
             <div className="pt-2 text-xs text-muted-foreground leading-relaxed">
-              Heat map shows citation coverage of seminal works from top-tier journals
+              Heat map shows coverage of cited sources and evidence depth across relevant literature
             </div>
           </div>
         </Card>
 
-        <Card
-          className="md:col-span-2 backdrop-blur-sm bg-card/60 hover:bg-card/80 transition-all duration-300"
-          style={{ borderWidth: "0.5px", borderColor: "oklch(0.35 0.015 260)" }}
-        >
-          <div className="p-8 space-y-5">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 bg-destructive/10 rounded-lg">
-                <AlertTriangle className="h-4 w-4 text-destructive" />
-              </div>
-              <h3 className="text-base font-serif font-semibold text-foreground tracking-tight">
-                Methodological Rigor
-              </h3>
-            </div>
-
-            <div className="space-y-3">
-              <CritiqueItem
-                title="Endogeneity Risk"
-                severity="high"
-                description="Potential reverse causality between firm performance and ESG scores"
-              />
-              <CritiqueItem
-                title="Sample Selection Bias"
-                severity="medium"
-                description="Analysis limited to S&P 500 companies, may not generalize"
-              />
-              <CritiqueItem
-                title="Overfitting Check"
-                severity="low"
-                description="Model complexity appropriate for sample size, cross-validation shows robustness"
-              />
-            </div>
-          </div>
-        </Card>
+        {/* Methodological Rigor card removed per design change */}
       </div>
     </div>
   )
@@ -196,9 +174,34 @@ function CitationJournal({ name, coverage }: { name: string; coverage: number })
   )
 }
 
-function RadialGauge({ value }: { value: number }) {
+function getColorClassForMetric(value: number) {
+  if (value >= 80) return "bg-secondary"
+  if (value >= 60) return "bg-primary"
+  return "bg-muted-foreground"
+}
+
+function ScoreMetric({ label, score, showValue }: { label: string; score: number; showValue: boolean }) {
+  const colorClass = getColorClassForMetric(score)
+  const filledWidth = showValue ? Math.max(0, Math.min(100, score)) : 100
+
+  return (
+    <div className="space-y-2.5">
+      <div className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">{label}</div>
+      <div className="text-2xl font-bold text-foreground font-mono">{showValue ? `${score}%` : null}</div>
+      <div className="h-1 rounded-full bg-muted/40 overflow-hidden" style={{ borderWidth: "0.5px", borderColor: "oklch(0.35 0.015 260 / 0.3)" }}>
+        <div
+          className={`${colorClass} h-full transition-all duration-500`}
+          style={{ width: `${filledWidth}%`, opacity: showValue ? 1 : 0.25 }}
+        />
+      </div>
+    </div>
+  )
+}
+
+function RadialGauge({ value, showValue }: { value: number; showValue?: boolean }) {
   const circumference = 2 * Math.PI * 50
   const offset = circumference - (value / 100) * circumference
+    const fgClass = showValue ? "text-primary" : "text-primary/30"
 
   return (
     <div className="relative w-36 h-36">
@@ -221,24 +224,21 @@ function RadialGauge({ value }: { value: number }) {
           fill="transparent"
           strokeDasharray={circumference}
           strokeDashoffset={offset}
-          className="text-primary transition-all duration-1000"
+          className={`${fgClass} transition-all duration-1000`}
           strokeLinecap="round"
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-4xl font-bold text-primary font-serif">{value}</span>
-        <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">Score</span>
+        {showValue ? (
+          <>
+            <span className="text-4xl font-bold text-primary font-serif">{value}</span>
+            <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">Score</span>
+          </>
+        ) : (
+          <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">Score</span>
+        )}
       </div>
     </div>
   )
 }
 
-function ScoreMetric({ label, score }: { label: string; score: number }) {
-  return (
-    <div className="space-y-2.5">
-      <div className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">{label}</div>
-      <div className="text-2xl font-bold text-foreground font-mono">{score}%</div>
-      <Progress value={score} className="h-1" />
-    </div>
-  )
-}

@@ -13,12 +13,12 @@ export function ArgusHeader() {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-foreground tracking-tight">ArgusAI</h1>
-              <p className="text-xs text-muted-foreground">All-Seeing Research Analysis</p>
+              <p className="text-xs text-muted-foreground">All-Seeing Thesis & Dissertation Auditor</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30">
-              <span className="mr-1.5">💼</span> Finance Mode
+              <span className="mr-1.5">🎓</span> Academic Mode
             </Badge>
             <Badge variant="outline" className="bg-secondary/10 text-secondary border-secondary/30">
               <span className="mr-1.5">⚡</span> System: Analysis Active

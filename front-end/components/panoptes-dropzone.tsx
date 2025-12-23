@@ -1,48 +1,65 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useCallback } from "react"
-import { Upload, Eye, FileText } from "lucide-react"
+import { Upload, Eye, FileText, AlertCircle } from "lucide-react"
 import { Card } from "@/components/ui/card"
 
-export function PanoptesDropzone() {
+export function PanoptesDropzone({ onUpload }: { onUpload?: (data: any) => void }) {
   const [isDragging, setIsDragging] = useState(false)
   const [isScanning, setIsScanning] = useState(false)
   const [fileName, setFileName] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragging(true)
-  }, [])
+  // --- NEW: THE AI CONNECTION LOGIC ---
+  const sendToArgus = async (file: File) => {
+    setIsScanning(true)
+    setError(null)
+    setFileName(file.name)
 
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragging(false)
-  }, [])
+    const formData = new FormData()
+    formData.append("file", file) // Must match 'file: UploadFile' in main.py
+
+    try {
+      const response = await fetch("http://localhost:8000/upload/", {
+        method: "POST",
+        body: formData,
+      })
+
+      if (!response.ok) throw new Error("Argus Backend unreachable")
+
+      const data = await response.json()
+      console.log("ARGUS ANALYSIS:", data.analysis)
+      // pass full backend response to parent
+      onUpload?.(data)
+      
+      // For now, we'll just log it. 
+      // Next, we'll pass this data to your Bento Grid!
+    } catch (err) {
+      console.error(err)
+      setError("Failed to reach Argus server.")
+    } finally {
+      setIsScanning(false)
+    }
+  }
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setIsDragging(false)
-
     const files = Array.from(e.dataTransfer.files)
-    const pdfFiles = files.filter(
-      (file) => file.type === "application/pdf" || file.name.endsWith(".tex") || file.name.endsWith(".latex"),
-    )
-
-    if (pdfFiles.length > 0) {
-      setFileName(pdfFiles[0].name)
-      setIsScanning(true)
-      setTimeout(() => setIsScanning(false), 3000)
-    }
+    const pdf = files.find((f) => f.type === "application/pdf")
+    if (pdf) sendToArgus(pdf) // Call the real logic
   }, [])
 
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
-    if (files && files.length > 0) {
-      setFileName(files[0].name)
-      setIsScanning(true)
-      setTimeout(() => setIsScanning(false), 3000)
+    if (files && files[0]) {
+      const f = files[0]
+      if (f.type !== "application/pdf" && !f.name.toLowerCase().endsWith(".pdf")) {
+        setError("Only PDF files are allowed.")
+        return
+      }
+      sendToArgus(f)
     }
   }, [])
 
@@ -52,8 +69,8 @@ export function PanoptesDropzone() {
         isDragging ? "border-primary shadow-[0_0_20px_oklch(0.75_0.08_75_/_0.3)]" : "border-border/50"
       }`}
       style={{ borderWidth: "0.5px" }}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
+      onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+      onDragLeave={() => setIsDragging(false)}
       onDrop={handleDrop}
     >
       <div className="p-10">
@@ -67,7 +84,7 @@ export function PanoptesDropzone() {
                 {[...Array(8)].map((_, i) => (
                   <Eye
                     key={i}
-                    className="absolute h-5 w-5 text-primary animate-pulse-eye"
+                    className="absolute h-5 w-5 text-primary animate-pulse"
                     style={{
                       transform: `rotate(${i * 45}deg) translateY(-32px)`,
                       animationDelay: `${i * 0.2}s`,
@@ -81,28 +98,21 @@ export function PanoptesDropzone() {
           <div className="space-y-1.5">
             <h2 className="text-xl font-serif font-bold text-foreground tracking-tight">The Panoptes Dropzone</h2>
             {isScanning ? (
-              <div className="space-y-1">
-                <p className="text-sm text-primary font-semibold animate-pulse">Scanning for Alpha...</p>
-                <p className="text-xs text-muted-foreground flex items-center gap-1.5 justify-center">
-                  <FileText className="h-3.5 w-3.5" />
-                  {fileName}
-                </p>
-              </div>
-            ) : fileName ? (
-              <p className="text-xs text-secondary font-medium flex items-center gap-1.5 justify-center">
-                <FileText className="h-3.5 w-3.5" />
-                Analysis complete: {fileName}
+              <p className="text-sm text-primary font-semibold animate-pulse">Auditing Thesis Logic...</p>
+            ) : error ? (
+              <p className="text-sm text-destructive flex items-center gap-1.5 justify-center">
+                <AlertCircle className="h-4 w-4" /> {error}
               </p>
+            ) : fileName ? (
+              <p className="text-xs text-secondary font-medium">Analysis complete: {fileName}</p>
             ) : (
-              <p className="text-sm text-muted-foreground">Drop your research papers here or click to upload</p>
+              <p className="text-sm text-muted-foreground">Drop thesis PDF here</p>
             )}
           </div>
 
-          <div className="text-xs text-muted-foreground">Accepts PDF, LaTeX (.tex) files</div>
-
           <input
             type="file"
-            accept=".pdf,.tex,.latex"
+            accept=".pdf"
             onChange={handleFileInput}
             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
           />
