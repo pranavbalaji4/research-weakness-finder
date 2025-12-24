@@ -2,6 +2,7 @@ import os
 import re
 import fitz  # PyMuPDF
 import google.generativeai as genai
+import traceback
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +14,15 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 if not GEMINI_API_KEY:
     print("WARNING: GEMINI_API_KEY not found in .env file!")
+else:
+    def _mask_key(k: str) -> str:
+        if not k:
+            return "<not set>"
+        if len(k) <= 10:
+            return k
+        return f"{k[:6]}...{k[-4:]}"
+
+    print(f"GEMINI_API_KEY present: True; masked key: {_mask_key(GEMINI_API_KEY)}")
 
 # 2. CONFIGURE GEMINI
 genai.configure(api_key=GEMINI_API_KEY)
@@ -109,7 +119,9 @@ async def upload_and_analyze(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed.")
 
     try:
-        # Save file
+        # Log receipt and Save file
+        print(f"Received upload: {file.filename}")
+        # ensure filename is safe in production — this is a dev helper log
         file_path = os.path.join(UPLOAD_DIR, file.filename)
         with open(file_path, "wb") as buffer:
             content = await file.read()
@@ -118,8 +130,18 @@ async def upload_and_analyze(file: UploadFile = File(...)):
         # Step 5: Extract Text
         extracted_text = extract_text_from_pdf(file_path)
         
-        # Step 6: AI Analysis
-        analysis_resp = await analyze_with_gemini(extracted_text)
+        # Step 6: AI Analysis (skip or handle Gemini failures gracefully)
+        if not GEMINI_API_KEY:
+            print("GEMINI_API_KEY not set — skipping Gemini analysis for debug")
+            analysis_resp = {"text": "DEBUG: gemini skipped (no API key)", "assumptions": []}
+        else:
+            try:
+                analysis_resp = await analyze_with_gemini(extracted_text)
+            except Exception as e:
+                print("Error during Gemini analysis:", str(e))
+                traceback.print_exc()
+                # Non-fatal fallback: return a placeholder analysis so frontend can continue
+                analysis_resp = {"text": f"Gemini unavailable: {e}", "assumptions": []}
         analysis_report = analysis_resp.get("text") if isinstance(analysis_resp, dict) else analysis_resp
         assumptions = analysis_resp.get("assumptions") if isinstance(analysis_resp, dict) else []
 
@@ -146,4 +168,6 @@ async def upload_and_analyze(file: UploadFile = File(...)):
         }
         
     except Exception as e:
+        print("Upload handler exception:", str(e))
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
