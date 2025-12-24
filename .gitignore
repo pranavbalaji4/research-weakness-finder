@@ -1,1 +1,15 @@
-".env" 
+# Ignore .env files in the root and ALL subfolders
+.env
+back-end/.env
+front-end/.env
+
+# Ignore Python virtual environments
+venv/
+.venv/
+__pycache__/
+
+# Ignore Node.js dependencies
+node_modules/
+
+# Ignore uploaded files
+back-end/uploaded_papers/
