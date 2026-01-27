@@ -6,3 +6,5 @@ google-generativeai
 python-multipart
 aiofiles
 requests
+sentence-transformers
+faiss-cpu

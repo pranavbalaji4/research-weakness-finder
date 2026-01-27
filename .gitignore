@@ -13,3 +13,21 @@ node_modules/
 
 # Ignore uploaded files
 back-end/uploaded_papers/
+
+# RAG / persistent index and DB
+back-end/data/
+back-end/*.db
+back-end/*.sqlite
+
+# Virtualenvs inside project folders
+back-end/venv/
+back-end/.venv/
+
+# Logs and local caches
+*.log
+.pytest_cache/
+
+# Editor/IDE files
+.vscode/
+.idea/
+.DS_Store

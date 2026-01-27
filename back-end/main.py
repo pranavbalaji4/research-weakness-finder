@@ -3,6 +3,21 @@ import re
 import fitz  # PyMuPDF
 import google.generativeai as genai
 import traceback
+import json
+from pathlib import Path
+
+# optional RAG utilities (fall back if not available)
+try:
+    import rag
+    ensure_paper_indexed = getattr(rag, "ensure_paper_indexed", None)
+    retrieve_chunks = getattr(rag, "retrieve_chunks", None)
+    save_analysis = getattr(rag, "save_analysis", None)
+    ensure_data_dir = getattr(rag, "ensure_data_dir", None)
+except Exception:
+    ensure_paper_indexed = None
+    retrieve_chunks = None
+    save_analysis = None
+    ensure_data_dir = None
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,6 +56,13 @@ app.add_middleware(
 UPLOAD_DIR = "uploaded_papers"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+# If rag is available, ensure its data directory exists now (helps visibility)
+if ensure_data_dir:
+    try:
+        ensure_data_dir()
+    except Exception as e:
+        print("Warning: could not ensure RAG data dir:", e)
+
 # ---------------------------------------------------------
 # HELPER FUNCTIONS
 # ---------------------------------------------------------
@@ -55,55 +77,155 @@ def extract_text_from_pdf(file_path: str) -> str:
         print(f"Extraction Error: {e}")
         return ""
 
-async def analyze_with_gemini(text: str):
-    """Sends the text to Gemini with the Socrates AI thesis-reviewer prompt."""
-    prompt = f"""
-    Persona: You are Socrates AI — a warm, encouraging, but intellectually brutal Thesis Advisor. Speak like a mentor who wants the student to succeed but will not let weak arguments pass.
+async def analyze_with_gemini(text: str, file_path: str = None, filename: str = None):
+    """Sends the text to Gemini. If RAG available, retrieve evidence and request structured JSON."""
 
-    Task: Audit the attached thesis or dissertation manuscript for academic quality and readiness for submission.
-
-    Focus areas (use the manuscript text as evidence):
-    - Logical Fallacies: identify where the argument breaks down, unsupported leaps, or faulty inference.
-    - Literature Gaps: missing key references, contextual framing, or theoretical grounding.
-    - Methodology Flaws: questionable data collection, sampling, measurement, identification, or analysis techniques.
-
-    Instructions:
-    - Tone: start with a short warm note (mentor-style), then deliver clear, blunt critique, then a concise actionable roadmap.
-    - Structure: return three labeled sections exactly: "Mentor's Note", "The Brutal Truth", and "Roadmap to an A".
-    - Length: keep the whole response concise (prefer bullets), and ensure each section is present. Use brief citations or paraphrases from the manuscript where helpful.
-
-    PAPER TEXT:
-    {text[:20000]}
-    """
-    # Using 20k characters to stay safe with standard token limits
-    response = model.generate_content(prompt)
-    text = response.text
-    # Try to extract an 'Assumptions' section (3 bullets) from the AI output
-    assumptions = []
+    # If RAG utilities are available, ensure the paper is indexed and retrieve evidence
+    evidence_blocks = []
+    retrieved_ids = []
     try:
-        # look for a heading called 'Assumptions' (case-insensitive)
-        m = re.split(r"\n\s*assumptions\s*[:\n]", text, flags=re.I)
-        if len(m) > 1:
-            block = m[1]
-            # stop at next blank line followed by a capitalized heading or end
-            block = block.split("\n\n")[0]
-            # extract lines starting with -, *, or numbered
-            for line in block.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                if line.startswith("-") or line.startswith("*") or re.match(r"^[0-9]+[.)]", line):
-                    assumptions.append(line.lstrip("-* 0123456789.()" ).strip())
-                else:
-                    # also accept short sentences as assumption bullets
-                    if len(assumptions) < 3 and len(line) < 200:
-                        assumptions.append(line)
-        # trim to 3
-        assumptions = assumptions[:3]
+        if ensure_paper_indexed and retrieve_chunks and filename and file_path:
+            paper_id = ensure_paper_indexed(file_path, filename)
+            # retrieval query: focus on critique, methodology and citations
+            query = "Find passages relevant to critique, methodology, and missing citations"
+            chunks = retrieve_chunks(paper_id, query, top_k=8)
+            for i, ch in enumerate(chunks):
+                evidence_blocks.append(f"Evidence {i+1} (pages {ch['start_page']}-{ch['end_page']}):\n{ch['text']}")
+                retrieved_ids.append(ch["id"])
     except Exception:
-        assumptions = []
+        # non-fatal: continue without RAG
+        evidence_blocks = []
+        retrieved_ids = []
 
-    return {"text": text, "assumptions": assumptions}
+    evidence_text = "\n\n".join(evidence_blocks)
+
+    # Compose a prompt that requests strict JSON
+    prompt = f"""
+Persona: You are Socrates AI — a warm, encouraging, but intellectually brutal Thesis Advisor.
+
+Task: Audit the manuscript for academic quality and readiness for submission.
+
+Focus areas: Logical Fallacies, Literature Gaps, Methodology Flaws.
+
+Instructions:
+- Return ONLY valid JSON with keys: `mentor_note` (string), `brutal_truth` (array of strings), `roadmap` (array of strings), and optional `assumptions` (array of strings).
+- Include short evidence references where relevant in `brutal_truth` items as objects if helpful.
+- If you cannot answer, include nulls or empty arrays. Do not include any free-form prose outside the JSON.
+
+EVIDENCE:
+{evidence_text}
+
+PAPER_TEXT (for context, truncated):
+{text[:20000]}
+"""
+
+    # Using 20k characters to stay safe with token limits. Generate.
+    response = model.generate_content(prompt)
+    raw = response.text
+
+    # Robust JSON extraction helper: handles code fences and finds balanced braces
+    def _extract_json_from_text(s: str):
+        try:
+            # If there's a fenced block, try those first
+            if "```" in s:
+                parts = s.split("```")
+                for p in parts:
+                    if "{" in p and "}" in p:
+                        candidate = p.strip()
+                        # find first '{' and attempt to extract balanced object
+                        st = candidate.find("{")
+                        if st != -1:
+                            cand = candidate[st:]
+                            brace = 0
+                            end_idx = None
+                            for i, ch in enumerate(cand):
+                                if ch == '{':
+                                    brace += 1
+                                elif ch == '}':
+                                    brace -= 1
+                                    if brace == 0:
+                                        end_idx = i + 1
+                                        break
+                            if end_idx:
+                                try:
+                                    return json.loads(cand[:end_idx])
+                                except Exception:
+                                    pass
+            # Otherwise scan whole string for first balanced JSON object
+            start = s.find('{')
+            if start == -1:
+                return None
+            brace = 0
+            end_idx = None
+            for i, ch in enumerate(s[start:]):
+                if ch == '{':
+                    brace += 1
+                elif ch == '}':
+                    brace -= 1
+                    if brace == 0:
+                        end_idx = start + i + 1
+                        break
+            if end_idx:
+                candidate = s[start:end_idx]
+                try:
+                    return json.loads(candidate)
+                except Exception:
+                    return None
+        except Exception:
+            return None
+        return None
+
+    # try to parse JSON from the model output using the helper
+    parsed = _extract_json_from_text(raw)
+    assumptions = []
+
+    # Fallback: attempt to extract assumptions from free text similar to previous logic
+    if not parsed:
+        try:
+            m = re.split(r"\n\s*assumptions\s*[:\n]", raw, flags=re.I)
+            if len(m) > 1:
+                block = m[1].split("\n\n")[0]
+                for line in block.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if line.startswith("-") or line.startswith("*") or re.match(r"^[0-9]+[.)]", line):
+                        assumptions.append(line.lstrip("-* 0123456789.()").strip())
+                    else:
+                        if len(assumptions) < 3 and len(line) < 200:
+                            assumptions.append(line)
+            assumptions = assumptions[:3]
+        except Exception:
+            assumptions = []
+
+    # If parsed JSON available, extract assumptions if present
+    if parsed and isinstance(parsed, dict):
+        assumptions = parsed.get("assumptions", assumptions)
+
+    # Save analysis record if RAG save available
+    try:
+        if save_analysis and filename:
+            # locate paper id if indexed
+            # best-effort: find by filename
+            # note: rag.save_analysis expects paper_id, but we saved retrieved_ids above; store with paper_id if available
+            # Here we attempt to find paper id via ensure_paper_indexed
+            paper_id = None
+            if ensure_paper_indexed and filename and file_path:
+                paper_id = ensure_paper_indexed(file_path, filename)
+            save_analysis(paper_id if paper_id else -1, "socrates-v1", raw, parsed if parsed else {}, retrieved_ids)
+    except Exception:
+        pass
+
+    # Prepare pretty-formatted analysis text to return to frontend
+    try:
+        if parsed and isinstance(parsed, dict):
+            pretty_analysis = json.dumps(parsed, indent=2, ensure_ascii=False)
+        else:
+            pretty_analysis = raw
+    except Exception:
+        pretty_analysis = raw
+
+    return {"text": pretty_analysis, "assumptions": assumptions}
 
 # ---------------------------------------------------------
 # ENDPOINTS
@@ -136,7 +258,7 @@ async def upload_and_analyze(file: UploadFile = File(...)):
             analysis_resp = {"text": "DEBUG: gemini skipped (no API key)", "assumptions": []}
         else:
             try:
-                analysis_resp = await analyze_with_gemini(extracted_text)
+                analysis_resp = await analyze_with_gemini(extracted_text, file_path=file_path, filename=file.filename)
             except Exception as e:
                 print("Error during Gemini analysis:", str(e))
                 traceback.print_exc()

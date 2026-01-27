@@ -1,0 +1,30 @@
+# Python virtual environments
+venv/
+.venv/
+
+# Local uploaded files and RAG artifacts
+uploaded_papers/
+data/
+faiss.index
+*.db
+*.sqlite
+
+# Env files with secrets
+.env
+.env.*
+
+# Byte-compiled / caches
+__pycache__/
+*.py[cod]
+
+# Testing and logs
+.pytest_cache/
+*.log
+
+# Editor folders
+.vscode/
+.idea/
+.DS_Store
+
+# Optional: coverage
+coverage/
