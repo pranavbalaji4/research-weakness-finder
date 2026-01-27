@@ -1,0 +1,3 @@
+Thesis Analyzer
+
+This repository contains a small thesis analyzer program that analyzes uploaded PDFs and produces evidence-backed reviews. It uses a Next.js frontend and a Python FastAPI backend. The backend implements a simple persistent RAG pipeline: PDFs are chunked, embedded using `sentence-transformers`, indexed with `faiss`, and metadata and analyses are stored in a local SQLite database. Model calls are made to an LLM (Gemini) and results are saved under `back-end/data/` for reproducibility. See `back-end/` and `front-end/` for run instructions and note that local artifacts (venvs, `.env`, `back-end/data`) are ignored by `.gitignore`.
