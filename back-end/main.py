@@ -80,7 +80,7 @@ def extract_text_from_pdf(file_path: str) -> str:
 async def analyze_with_gemini(text: str, file_path: str = None, filename: str = None):
     """Sends the text to Gemini. If RAG available, retrieve evidence and request structured JSON."""
 
-    # If RAG utilities are available, ensure the paper is indexed and retrieve evidence
+    # If RAG utilities are available, ensure the paper is indexed and retrieve parent-level evidence
     evidence_blocks = []
     retrieved_ids = []
     try:
@@ -88,10 +88,23 @@ async def analyze_with_gemini(text: str, file_path: str = None, filename: str = 
             paper_id = ensure_paper_indexed(file_path, filename)
             # retrieval query: focus on critique, methodology and citations
             query = "Find passages relevant to critique, methodology, and missing citations"
-            chunks = retrieve_chunks(paper_id, query, top_k=8)
-            for i, ch in enumerate(chunks):
-                evidence_blocks.append(f"Evidence {i+1} (pages {ch['start_page']}-{ch['end_page']}):\n{ch['text']}")
-                retrieved_ids.append(ch["id"])
+            parents = retrieve_chunks(paper_id, query, top_k=10)
+            # Deduplicate parents preserving order and collect contributing child ids
+            seen = set()
+            for p in parents:
+                pid = p.get("parent_id")
+                if pid in seen:
+                    continue
+                seen.add(pid)
+                start = p.get("start_page", "")
+                end = p.get("end_page", "")
+                # include a truncated preview of the parent text (keep prompt size reasonable)
+                preview = (p.get("text") or "")[:1500]
+                evidence_blocks.append(f"Evidence {len(evidence_blocks)+1} (pages {start}-{end}):\n{preview}")
+                # store child ids that contributed to this parent
+                cid_list = p.get("child_ids", [])
+                for cid in cid_list:
+                    retrieved_ids.append(cid)
     except Exception:
         # non-fatal: continue without RAG
         evidence_blocks = []

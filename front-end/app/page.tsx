@@ -104,30 +104,141 @@ function jsonToHtml(obj: any) {
   if (!obj) return ""
   const parts: string[] = []
   if (obj.mentor_note) {
-    parts.push(`<p class=\"text-sm text-muted-foreground leading-relaxed mb-3\"><strong>Mentor note:</strong> ${formatInline(obj.mentor_note)}</p>`)
+    parts.push(`<div class="mb-4 pb-4 border-b border-border/30"><p class="text-sm leading-relaxed text-muted-foreground">${formatInline(obj.mentor_note)}</p></div>`)
   }
   if (obj.brutal_truth && Array.isArray(obj.brutal_truth) && obj.brutal_truth.length) {
     const items = obj.brutal_truth
-      .map((it: any) => {
+      .map((it: any, idx: number) => {
         if (!it) return ''
-        if (typeof it === 'string') return `<li class=\"text-sm text-muted-foreground leading-relaxed mb-2\">${formatInline(it)}</li>`
-        // if object, try to render text + evidence
-        const text = formatInline(it.text || JSON.stringify(it))
-        const evidence = it.evidence ? `<div class=\"text-xs text-muted-foreground/80 italic mt-1\">Evidence: ${formatInline(it.evidence)}</div>` : ''
-        return `<li class=\"text-sm text-muted-foreground leading-relaxed mb-2\">${text}${evidence}</li>`
+        // simple string case
+        if (typeof it === 'string') {
+          return `<li class="text-sm text-muted-foreground leading-relaxed mb-4">${formatInline(it)}</li>`
+        }
+
+        // object case: parse flaw + evidence
+        const flaw = it.flaw || it.issue || it.point || it.text || it.message || JSON.stringify(it)
+        const flawHtml = `<div class="text-sm text-muted-foreground leading-relaxed font-medium mb-2">${formatInline(flaw)}${it.focus ? `<span class="ml-2 text-xs font-medium text-foreground/70">— ${formatInline(it.focus)}</span>` : ''}</div>`
+
+        // evidence array: show page + snippet for each
+        let evHtml = ''
+        if (it.evidence && Array.isArray(it.evidence) && it.evidence.length > 0) {
+          const evItems = it.evidence
+            .map((ev: any) => {
+              const page = ev.page || ev.pages || ev.page_text || ''
+              const snippet = ev.snippet || ev.snip || ''
+              const pageStr = page ? `<span class="font-semibold text-xs">${formatInline(page)}</span>` : ''
+              const snippetStr = snippet ? `<span class="text-xs italic text-muted-foreground/70 block mt-1">"${formatInline(snippet)}"</span>` : ''
+              return `<div class="text-xs text-muted-foreground/80 mb-2">${pageStr}${snippetStr}</div>`
+            })
+            .join('')
+          evHtml = `<div class="ml-3 pl-3 border-l border-border/20 mt-2 mb-3">${evItems}</div>`
+        }
+
+        return `<li class="mb-4">${flawHtml}${evHtml}</li>`
       })
       .join('')
-    parts.push(`<h4 class=\"text-sm font-semibold mb-2\">Brutal Truth</h4><ul class=\"list-disc ml-5 mb-3\">${items}</ul>`)
+    parts.push(`<div class="mb-6"><h4 class="text-base font-semibold mb-4 text-foreground">Brutal Truth</h4><ul class="list-none ml-0 space-y-0">${items}</ul></div>`)
   }
   if (obj.roadmap && Array.isArray(obj.roadmap) && obj.roadmap.length) {
-    const items = obj.roadmap.map((r: any) => `<li class=\"text-sm text-muted-foreground leading-relaxed mb-2\">${formatInline(r)}</li>`).join('')
-    parts.push(`<h4 class=\"text-sm font-semibold mb-2\">Roadmap</h4><ol class=\"list-decimal ml-5 mb-3\">${items}</ol>`)
+    const items = obj.roadmap.map((r: any) => `<li class="text-sm text-muted-foreground leading-relaxed mb-3">${formatInline(r)}</li>`).join('')
+    parts.push(`<div class="mb-6"><h4 class="text-base font-semibold mb-4 text-foreground">Roadmap</h4><ol class="list-decimal ml-5 space-y-2">${items}</ol></div>`)
   }
   if (obj.assumptions && Array.isArray(obj.assumptions) && obj.assumptions.length) {
-    const items = obj.assumptions.map((a: any) => `<li class=\"text-sm text-muted-foreground leading-relaxed mb-2\">${formatInline(a)}</li>`).join('')
-    parts.push(`<h4 class=\"text-sm font-semibold mb-2\">Assumptions</h4><ul class=\"list-disc ml-5 mb-3\">${items}</ul>`)
+    const items = obj.assumptions.map((a: any) => `<li class="text-sm text-muted-foreground leading-relaxed mb-2">${formatInline(a)}</li>`).join('')
+    parts.push(`<div class="mb-6"><h4 class="text-base font-semibold mb-4 text-foreground">Assumptions</h4><ul class="list-disc ml-5 space-y-2">${items}</ul></div>`)
   }
   return parts.join('')
+}
+
+// --- Helpers: resilient JSON extraction and normalization ---
+function extractJsonObjectsFromText(s: string) {
+  if (!s) return []
+  const objs: any[] = []
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] !== '{') continue
+    let brace = 0
+    for (let j = i; j < s.length; j++) {
+      const ch = s[j]
+      if (ch === '{') brace++
+      else if (ch === '}') brace--
+      if (brace === 0) {
+        const cand = s.slice(i, j + 1)
+        try {
+          const parsed = JSON.parse(cand)
+          objs.push(parsed)
+          i = j
+          break
+        } catch (e) {
+          // not valid JSON here, continue scanning
+        }
+      }
+    }
+  }
+  return objs
+}
+
+function tryParseSocratesOutput(s: string) {
+  if (!s) return null
+  const str = s.trim()
+
+  // 1) direct parse (most common)
+  try {
+    const parsed = JSON.parse(str)
+    if (Array.isArray(parsed)) {
+      return { mentor_note: null, brutal_truth: parsed, roadmap: [], assumptions: [] }
+    }
+    return parsed
+  } catch (e) {
+    // continue
+  }
+
+  // 2) fenced code blocks - try those
+  if (str.includes('```')) {
+    const parts = str.split('```')
+    for (const p of parts) {
+      const t = p.trim()
+      if (t.startsWith('{') || t.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(t)
+          if (Array.isArray(parsed)) return { mentor_note: null, brutal_truth: parsed, roadmap: [], assumptions: [] }
+          return parsed
+        } catch (e) {
+          // continue
+        }
+      }
+    }
+  }
+
+  // 3) extract multiple {} JSON objects and merge them
+  const objs = extractJsonObjectsFromText(str)
+  if (!objs.length) return null
+  if (objs.length === 1) {
+    const o = objs[0]
+    if (Array.isArray(o)) return { mentor_note: null, brutal_truth: o, roadmap: [], assumptions: [] }
+    return o
+  }
+
+  const combined: any = { mentor_note: null, brutal_truth: [], roadmap: [], assumptions: [] }
+  for (const o of objs) {
+    if (!o || typeof o !== 'object') continue
+    if (!combined.mentor_note && o.mentor_note) combined.mentor_note = o.mentor_note
+    if (o.brutal_truth) combined.brutal_truth = combined.brutal_truth.concat(o.brutal_truth)
+    if (o.roadmap) combined.roadmap = combined.roadmap.concat(o.roadmap)
+    if (o.assumptions) combined.assumptions = combined.assumptions.concat(o.assumptions)
+
+    // If object appears to represent a single issue (common when model emits many small objects)
+    if (o.issue || o.focus || o.text || o.flaw || o.message) {
+      const item: any = {}
+      item.flaw = o.issue || o.text || o.flaw || o.message || JSON.stringify(o)
+      if (o.focus) item.focus = o.focus
+      if (o.evidence) item.evidence = o.evidence
+      combined.brutal_truth.push(item)
+    } else {
+      combined.brutal_truth.push(o)
+    }
+  }
+
+  return combined
 }
 
 export default function Home() {
@@ -137,14 +248,7 @@ export default function Home() {
   const [analysisText, setAnalysisText] = useState<string | null>(null)
 
   const analysisHtml = useMemo(() => markdownToHtml(analysisText), [analysisText])
-  const parsedJson = useMemo(() => {
-    if (!analysisText) return null
-    try {
-      return JSON.parse(analysisText)
-    } catch (e) {
-      return null
-    }
-  }, [analysisText])
+  const parsedJson = useMemo(() => tryParseSocratesOutput(analysisText), [analysisText])
   const jsonHtml = useMemo(() => (parsedJson ? jsonToHtml(parsedJson) : null), [parsedJson])
 
   return (
